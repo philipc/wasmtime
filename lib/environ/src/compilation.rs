@@ -3,9 +3,11 @@
 
 use cranelift_codegen::binemit;
 use cranelift_codegen::ir;
+use cranelift_codegen::isa;
 use cranelift_codegen::CodegenError;
 use cranelift_entity::PrimaryMap;
 use cranelift_wasm::{DefinedFuncIndex, FuncIndex, WasmError};
+use std::boxed::Box;
 use std::vec::Vec;
 
 /// The result of compiling a WebAssembly module's functions.
@@ -95,3 +97,34 @@ pub struct FunctionAddressTransform {
 
 /// Function AddressTransforms collection.
 pub type AddressTransforms = PrimaryMap<DefinedFuncIndex, FunctionAddressTransform>;
+
+/// TODO
+#[derive(Debug)]
+pub enum FrameLayoutCommand {
+    /// TODO
+    MoveLocationBy(usize),
+    /// TODO
+    CallFrameAddressAt {
+        /// TODO
+        reg: isa::RegUnit,
+        /// TODO
+        offset: isize,
+    },
+    /// TODO
+    RegAt {
+        /// TODO
+        reg: isa::RegUnit,
+        /// TODO
+        cfa_offset: isize,
+    },
+}
+
+/// TODO
+#[derive(Debug)]
+pub struct FrameLayout {
+    pub call_conv: isa::CallConv,
+    pub commands: Box<[FrameLayoutCommand]>,
+}
+
+/// TODO
+pub type FrameLayouts = PrimaryMap<DefinedFuncIndex, FrameLayout>;

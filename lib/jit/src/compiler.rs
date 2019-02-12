@@ -78,13 +78,14 @@ impl Compiler {
         ),
         SetupError,
     > {
-        let (compilation, relocations, address_transform) = cranelift::compile_module(
-            module,
-            function_body_inputs,
-            &*self.isa,
-            debug_data.is_some(),
-        )
-        .map_err(SetupError::Compile)?;
+        let (compilation, relocations, address_transform, frame_layout) =
+            cranelift::compile_module(
+                module,
+                function_body_inputs,
+                &*self.isa,
+                debug_data.is_some(),
+            )
+            .map_err(SetupError::Compile)?;
 
         let allocated_functions =
             allocate_functions(&mut self.code_memory, &compilation).map_err(|message| {
@@ -95,7 +96,6 @@ impl Compiler {
             })?;
 
         let dbg = if let Some(debug_data) = debug_data {
-            let target_config = self.isa.frontend_config();
             let triple = self.isa.triple().clone();
             let mut funcs = Vec::new();
             for (i, allocated) in allocated_functions.into_iter() {
@@ -105,9 +105,10 @@ impl Compiler {
             }
             let bytes = emit_debugsections_image(
                 triple,
-                &target_config,
+                &*self.isa,
                 &debug_data,
                 &address_transform,
+                &frame_layout,
                 &funcs,
             )
             .map_err(|e| SetupError::DebugInfo(e))?;

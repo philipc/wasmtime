@@ -1,16 +1,19 @@
 //! Debug utils for WebAssembly using Cranelift.
-use cranelift_codegen::isa::TargetFrontendConfig;
+use cranelift_codegen::isa::TargetIsa;
 use faerie::{Artifact, Decl};
 use failure::Error;
+use std::ptr;
 use target_lexicon::{BinaryFormat, Triple};
 
+pub use crate::frame::get_debug_frame_bytes;
 pub use crate::read_debuginfo::{read_debuginfo, DebugInfoData};
 pub use crate::transform::transform_dwarf;
 pub use crate::write_debuginfo::{emit_dwarf, ResolvedSymbol, SymbolResolver};
 
-use wasmtime_environ::AddressTransforms;
+use wasmtime_environ::{AddressTransforms, FrameLayouts};
 
 mod address_transform;
+mod frame;
 mod read_debuginfo;
 mod transform;
 mod write_debuginfo;
@@ -28,13 +31,23 @@ impl SymbolResolver for FunctionRelocResolver {
 
 pub fn emit_debugsections(
     obj: &mut Artifact,
-    target_config: &TargetFrontendConfig,
+    isa: &TargetIsa,
     debuginfo_data: &DebugInfoData,
     at: &AddressTransforms,
+    frame_layouts: &FrameLayouts,
 ) -> Result<(), Error> {
+    let target_config = &isa.frontend_config();
     let dwarf = transform_dwarf(target_config, debuginfo_data, at)?;
     let resolver = FunctionRelocResolver {};
-    emit_dwarf(obj, dwarf, &resolver);
+    let max = at.values().map(|v| v.body_len).fold(0, usize::max);
+    let mut funcs_bodies = Vec::with_capacity(max as usize);
+    funcs_bodies.resize(max as usize, 0);
+    let funcs = at
+        .values()
+        .map(|v| (ptr::null(), v.body_len))
+        .collect::<Vec<(*const u8, usize)>>();
+    let frames = get_debug_frame_bytes(&funcs, isa, frame_layouts)?;
+    emit_dwarf(obj, dwarf, &resolver, Some(frames));
     Ok(())
 }
 
@@ -51,16 +64,19 @@ impl<'a> SymbolResolver for ImageRelocResolver<'a> {
 
 pub fn emit_debugsections_image(
     triple: Triple,
-    target_config: &TargetFrontendConfig,
+    isa: &TargetIsa,
     debuginfo_data: &DebugInfoData,
     at: &AddressTransforms,
+    frame_layouts: &FrameLayouts,
     funcs: &Vec<(*const u8, usize)>,
 ) -> Result<Vec<u8>, Error> {
+    let target_config = &isa.frontend_config();
     let ref func_offsets = funcs
         .iter()
         .map(|(ptr, _)| *ptr as u64)
         .collect::<Vec<u64>>();
     let mut obj = Artifact::new(triple, String::from("module"));
+
     let dwarf = transform_dwarf(target_config, debuginfo_data, at)?;
     let resolver = ImageRelocResolver { func_offsets };
 
@@ -76,7 +92,8 @@ pub fn emit_debugsections_image(
     let body = unsafe { ::std::slice::from_raw_parts(segment_body.0, segment_body.1) };
     obj.declare_with("all", Decl::Function { global: false }, body.to_vec())?;
 
-    emit_dwarf(&mut obj, dwarf, &resolver);
+    let frames = get_debug_frame_bytes(&funcs, isa, frame_layouts)?;
+    emit_dwarf(&mut obj, dwarf, &resolver, Some(frames));
 
     // LLDB is too "magical" about mach-o, generating elf
     let mut bytes = obj.emit_as(BinaryFormat::Elf)?;

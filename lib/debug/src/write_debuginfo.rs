@@ -57,10 +57,49 @@ pub trait SymbolResolver {
     fn resolve_symbol(&self, symbol: usize, addend: i64) -> ResolvedSymbol;
 }
 
+fn write_debug_frame(
+    artifact: &mut Artifact,
+    symbol_resolver: &SymbolResolver,
+    mut bytes: Vec<u8>,
+    relocs: Vec<usize>,
+) {
+    artifact
+        .declare(".debug_frame", Decl::DebugSection)
+        .expect("debug_frame declared");
+    for (i, reloc) in relocs.iter().enumerate() {
+        let addr = symbol_resolver.resolve_symbol(i, /* addend */ 0);
+        match addr {
+            ResolvedSymbol::PhysicalAddress(a) => unsafe {
+                let ptr = bytes.as_mut_ptr().offset((*reloc) as isize) as *mut u64;
+                *ptr = a;
+            },
+            ResolvedSymbol::Reloc { name, addend } => {
+                artifact
+                    .link_with(
+                        faerie::Link {
+                            from: ".debug_frame",
+                            to: &name,
+                            at: (*reloc) as u64,
+                        },
+                        faerie::Reloc::Debug {
+                            size: 8,
+                            addend: addend as i32,
+                        },
+                    )
+                    .expect("faerie relocation error");
+            }
+        }
+    }
+    artifact
+        .define(".debug_frame", bytes)
+        .expect("debug_frame defined");
+}
+
 pub fn emit_dwarf(
     artifact: &mut Artifact,
     mut dwarf: TransformedDwarf,
     symbol_resolver: &SymbolResolver,
+    frames: Option<(Vec<u8>, Vec<usize>)>,
 ) {
     let endian = RunTimeEndian::Little;
     let debug_abbrev = DebugAbbrev::from(WriterRelocate::new(endian, symbol_resolver));
@@ -104,6 +143,10 @@ pub fn emit_dwarf(
     let debug_rnglists_not_empty = !sections.debug_rnglists.0.writer.slice().is_empty();
     if debug_rnglists_not_empty {
         decl_section!(artifact.DebugRngLists = sections.debug_rnglists);
+    }
+
+    if let Some((bytes, relocs)) = frames {
+        write_debug_frame(artifact, symbol_resolver, bytes, relocs);
     }
 
     sect_relocs!(artifact.DebugAbbrev = sections.debug_abbrev);

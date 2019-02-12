@@ -1,8 +1,9 @@
 //! Support for compiling with Cranelift.
 
 use crate::compilation::{
-    AddressTransforms, Compilation, CompileError, FunctionAddressTransform,
-    InstructionAddressTransform, Relocation, RelocationTarget, Relocations,
+    AddressTransforms, Compilation, CompileError, FrameLayout, FrameLayoutCommand, FrameLayouts,
+    FunctionAddressTransform, InstructionAddressTransform, Relocation, RelocationTarget,
+    Relocations,
 };
 use crate::func_environ::{
     get_func_name, get_imported_memory32_grow_name, get_imported_memory32_size_name,
@@ -109,6 +110,40 @@ fn get_address_transform(
     result
 }
 
+fn get_frame_layout(context: &Context, isa: &isa::TargetIsa) -> Vec<FrameLayoutCommand> {
+    let func = &context.func;
+    let mut ebbs = func.layout.ebbs().collect::<Vec<_>>();
+    ebbs.sort_by_key(|ebb| func.offsets[*ebb]); // Ensure inst offsets always increase
+
+    let encinfo = isa.encoding_info();
+    let mut last_offset = 0;
+    let mut result = Vec::new();
+    for ebb in ebbs {
+        for (offset, inst, size) in func.inst_offsets(ebb, &encinfo) {
+            let frame_layout_cmds = func.inst_frame_layout_changes(&inst);
+            if let Some(cmds) = frame_layout_cmds {
+                let address_offset = (offset + size) as usize;
+                assert!(last_offset < address_offset);
+                result.push(FrameLayoutCommand::MoveLocationBy(
+                    address_offset - last_offset,
+                ));
+                for c in cmds.iter() {
+                    result.push(match *c {
+                        ir::FrameLayoutChange::CallFrameAddressAt { reg, offset } => {
+                            FrameLayoutCommand::CallFrameAddressAt { reg, offset }
+                        }
+                        ir::FrameLayoutChange::RegAt { reg, cfa_offset } => {
+                            FrameLayoutCommand::RegAt { reg, cfa_offset }
+                        }
+                    });
+                }
+                last_offset = address_offset;
+            }
+        }
+    }
+    result
+}
+
 /// Compile the module using Cranelift, producing a compilation result with
 /// associated relocations.
 pub fn compile_module<'data, 'module>(
@@ -116,10 +151,11 @@ pub fn compile_module<'data, 'module>(
     function_body_inputs: PrimaryMap<DefinedFuncIndex, FunctionBodyData<'data>>,
     isa: &dyn isa::TargetIsa,
     generate_debug_info: bool,
-) -> Result<(Compilation, Relocations, AddressTransforms), CompileError> {
+) -> Result<(Compilation, Relocations, AddressTransforms, FrameLayouts), CompileError> {
     let mut functions = PrimaryMap::with_capacity(function_body_inputs.len());
     let mut relocations = PrimaryMap::with_capacity(function_body_inputs.len());
     let mut address_transforms = PrimaryMap::with_capacity(function_body_inputs.len());
+    let mut frame_layouts = PrimaryMap::with_capacity(function_body_inputs.len());
 
     function_body_inputs
         .into_iter()
@@ -160,18 +196,41 @@ pub fn compile_module<'data, 'module>(
                 None
             };
 
-            Ok((code_buf, reloc_sink.func_relocs, address_transform))
+            let frame_layout = if generate_debug_info {
+                let commands = get_frame_layout(&context, isa).into_boxed_slice();
+                Some(FrameLayout {
+                    call_conv: context.func.signature.call_conv,
+                    commands,
+                })
+            } else {
+                None
+            };
+
+            Ok((
+                code_buf,
+                reloc_sink.func_relocs,
+                address_transform,
+                frame_layout,
+            ))
         })
         .collect::<Result<Vec<_>, CompileError>>()?
         .into_iter()
-        .for_each(|(function, relocs, address_transform)| {
+        .for_each(|(function, relocs, address_transform, frame_layout)| {
             functions.push(function);
             relocations.push(relocs);
             if let Some(address_transform) = address_transform {
                 address_transforms.push(address_transform);
             }
+            if let Some(frame_layout) = frame_layout {
+                frame_layouts.push(frame_layout);
+            }
         });
 
     // TODO: Reorganize where we create the Vec for the resolved imports.
-    Ok((Compilation::new(functions), relocations, address_transforms))
+    Ok((
+        Compilation::new(functions),
+        relocations,
+        address_transforms,
+        frame_layouts,
+    ))
 }

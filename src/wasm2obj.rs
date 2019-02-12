@@ -159,7 +159,7 @@ fn handle_module(
         )
     };
 
-    let (compilation, relocations, address_transform) = cranelift::compile_module(
+    let (compilation, relocations, address_transform, frame_layout) = cranelift::compile_module(
         &module,
         lazy_function_body_inputs,
         &*isa,
@@ -178,8 +178,14 @@ fn handle_module(
 
     if generate_debug_info {
         let debug_data = read_debuginfo(&data);
-        emit_debugsections(&mut obj, &target_config, &debug_data, &address_transform)
-            .map_err(|e| e.to_string())?;
+        emit_debugsections(
+            &mut obj,
+            &*isa,
+            &debug_data,
+            &address_transform,
+            &frame_layout,
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     // FIXME: Make the format a parameter.

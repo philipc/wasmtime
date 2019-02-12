@@ -47,8 +47,8 @@ mod vmoffsets;
 pub mod cranelift;
 
 pub use crate::compilation::{
-    AddressTransforms, Compilation, CompileError, InstructionAddressTransform, Relocation,
-    RelocationTarget, Relocations,
+    AddressTransforms, Compilation, CompileError, FrameLayoutCommand, FrameLayouts,
+    InstructionAddressTransform, Relocation, RelocationTarget, Relocations,
 };
 pub use crate::module::{
     Export, MemoryPlan, MemoryStyle, Module, TableElements, TablePlan, TableStyle,
