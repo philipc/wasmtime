@@ -43,6 +43,7 @@ wabt = "0.7"
 [workspace]
 
 [patch.crates-io]
+gimli = { path = "../gimli" }
 cranelift-codegen = { path = "../../cranelift/cranelift-codegen" }
 cranelift-native = { path = "../../cranelift/cranelift-native" }
 cranelift-entity = { path = "../../cranelift/cranelift-entity" }

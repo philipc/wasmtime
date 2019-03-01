@@ -1,3 +1,4 @@
+use crate::frame::DebugFrameTable;
 use crate::transform::TransformedDwarf;
 
 use gimli::write::{
@@ -60,46 +61,36 @@ pub trait SymbolResolver {
 fn write_debug_frame(
     artifact: &mut Artifact,
     symbol_resolver: &SymbolResolver,
-    mut bytes: Vec<u8>,
-    relocs: Vec<usize>,
+    df_table: DebugFrameTable,
 ) {
+    let mut w = WriterRelocate::new(RunTimeEndian::Little, symbol_resolver);
+    df_table.write(&mut w).unwrap();
     artifact
-        .declare(".debug_frame", Decl::DebugSection)
-        .expect("debug_frame declared");
-    for (i, reloc) in relocs.iter().enumerate() {
-        let addr = symbol_resolver.resolve_symbol(i, /* addend */ 0);
-        match addr {
-            ResolvedSymbol::PhysicalAddress(a) => unsafe {
-                let ptr = bytes.as_mut_ptr().offset((*reloc) as isize) as *mut u64;
-                *ptr = a;
-            },
-            ResolvedSymbol::Reloc { name, addend } => {
-                artifact
-                    .link_with(
-                        faerie::Link {
-                            from: ".debug_frame",
-                            to: &name,
-                            at: (*reloc) as u64,
-                        },
-                        faerie::Reloc::Debug {
-                            size: 8,
-                            addend: addend as i32,
-                        },
-                    )
-                    .expect("faerie relocation error");
-            }
-        }
+        .declare_with(".debug_frame", Decl::DebugSection, w.writer.into_vec())
+        .unwrap();
+
+    for reloc in w.relocs {
+        artifact
+            .link_with(
+                faerie::Link {
+                    from: ".debug_frame",
+                    to: &reloc.name,
+                    at: u64::from(reloc.offset),
+                },
+                faerie::Reloc::Debug {
+                    size: reloc.size,
+                    addend: reloc.addend as i32,
+                },
+            )
+            .expect("faerie relocation error");
     }
-    artifact
-        .define(".debug_frame", bytes)
-        .expect("debug_frame defined");
 }
 
 pub fn emit_dwarf(
     artifact: &mut Artifact,
     mut dwarf: TransformedDwarf,
     symbol_resolver: &SymbolResolver,
-    frames: Option<(Vec<u8>, Vec<usize>)>,
+    frames: Option<DebugFrameTable>,
 ) {
     let endian = RunTimeEndian::Little;
     let debug_abbrev = DebugAbbrev::from(WriterRelocate::new(endian, symbol_resolver));
@@ -145,8 +136,8 @@ pub fn emit_dwarf(
         decl_section!(artifact.DebugRngLists = sections.debug_rnglists);
     }
 
-    if let Some((bytes, relocs)) = frames {
-        write_debug_frame(artifact, symbol_resolver, bytes, relocs);
+    if let Some(df_table) = frames {
+        write_debug_frame(artifact, symbol_resolver, df_table);
     }
 
     sect_relocs!(artifact.DebugAbbrev = sections.debug_abbrev);
