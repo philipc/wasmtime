@@ -1,11 +1,10 @@
-use crate::frame::DebugFrameTable;
 use crate::transform::TransformedDwarf;
 
 use gimli::write::{
     Address, DebugAbbrev, DebugInfo, DebugLine, DebugLineStr, DebugRanges, DebugRngLists, DebugStr,
-    EndianVec, Result, SectionId, Sections, Writer,
+    EndianVec, Result, Sections, Writer, FrameTable, DebugFrame,
 };
-use gimli::RunTimeEndian;
+use gimli::{RunTimeEndian, SectionId};
 
 use faerie::artifact::Decl;
 use faerie::*;
@@ -61,15 +60,15 @@ pub trait SymbolResolver {
 fn write_debug_frame(
     artifact: &mut Artifact,
     symbol_resolver: &SymbolResolver,
-    df_table: DebugFrameTable,
+    df_table: FrameTable,
 ) {
-    let mut w = WriterRelocate::new(RunTimeEndian::Little, symbol_resolver);
+    let mut w = DebugFrame::from(WriterRelocate::new(RunTimeEndian::Little, symbol_resolver));
     df_table.write(&mut w).unwrap();
     artifact
-        .declare_with(".debug_frame", Decl::DebugSection, w.writer.into_vec())
+        .declare_with(".debug_frame", Decl::DebugSection, w.0.writer.into_vec())
         .unwrap();
 
-    for reloc in w.relocs {
+    for reloc in w.0.relocs {
         artifact
             .link_with(
                 faerie::Link {
@@ -90,7 +89,7 @@ pub fn emit_dwarf(
     artifact: &mut Artifact,
     mut dwarf: TransformedDwarf,
     symbol_resolver: &SymbolResolver,
-    frames: Option<DebugFrameTable>,
+    frames: Option<FrameTable>,
 ) {
     let endian = RunTimeEndian::Little;
     let debug_abbrev = DebugAbbrev::from(WriterRelocate::new(endian, symbol_resolver));

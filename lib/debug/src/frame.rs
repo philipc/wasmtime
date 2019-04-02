@@ -9,22 +9,9 @@ use wasmtime_environ::{FrameLayoutCommand, FrameLayouts};
 
 use gimli::write::{
     Address, CallFrameInstruction, CommonInformationEntry as CIEEntry, Error,
-    FrameDescriptionEntry as FDEEntry, Writer,
+    FrameDescriptionEntry as FDEEntry, FrameTable,
 };
-use gimli::{Register, X86_64};
-
-pub struct DebugFrameTable {
-    pub entries: Vec<CIEEntry>,
-}
-
-impl DebugFrameTable {
-    pub fn write<W: Writer>(&self, writer: &mut W) -> Result<(), Error> {
-        for cie in self.entries.iter() {
-            cie.write(writer)?;
-        }
-        Ok(())
-    }
-}
+use gimli::{Encoding, Format, Register, X86_64};
 
 fn map_reg(isa: &TargetIsa, reg: RegUnit) -> Register {
     static mut REG_X86_MAP: Option<HashMap<RegUnit, Register>> = None;
@@ -59,7 +46,7 @@ pub fn get_debug_frame_bytes(
     funcs: &Vec<(*const u8, usize)>,
     isa: &TargetIsa,
     layouts: &FrameLayouts,
-) -> Result<DebugFrameTable, Error> {
+) -> Result<FrameTable, Error> {
     assert!(isa.name() == "x86");
     // Expecting all function with System V prologue
     for l in layouts.values() {
@@ -70,76 +57,63 @@ pub fn get_debug_frame_bytes(
         );
     }
 
-    let address_size = isa.pointer_bytes();
-    let mut cie = CIEEntry::new();
-    cie.version = 4;
-    cie.address_size = address_size;
-    cie.code_alignment_factor = 1;
-    cie.data_alignment_factor = -8;
-    cie.return_address_register = X86_64::RA;
-    cie.add_initial_instruction(CallFrameInstruction::DefCfa {
-        register: X86_64::RSP,
-        offset: 8,
-    });
-    cie.add_initial_instruction(CallFrameInstruction::Offset {
-        register: X86_64::RA,
-        factored_offset: 1,
-    });
+    let encoding = Encoding {
+        format: Format::Dwarf32,
+        version: 4,
+        address_size: isa.pointer_bytes(),
+    };
+    let mut table = FrameTable::new(encoding);
+
+    let mut cie = CIEEntry::new(1, -8, X86_64::RA);
+    cie.add_instruction(CallFrameInstruction::Cfa(X86_64::RSP, 8));
+    cie.add_instruction(CallFrameInstruction::Offset(X86_64::RA, -8));
+    let cie = table.add_cie(cie);
 
     for (i, f) in funcs.into_iter().enumerate() {
         let mut cfa_def_reg = X86_64::RSP;
-        let mut cfa_def_offset = 8u64;
+        let mut cfa_def_offset = 8i32;
 
-        let f_len = f.1 as u64;
-        let mut fde = FDEEntry::new();
-        fde.initial_location = Address::Relative {
+        let address = Address::Relative {
             symbol: i,
             addend: 0,
         };
-        fde.address_range = f_len;
+        let f_len = f.1 as u32;
+        let mut fde = FDEEntry::new(cie, address, f_len);
 
+        let mut offset = 0;
         let layout = &layouts[DefinedFuncIndex::new(i)];
         for cmd in layout.commands.into_iter() {
             let instr = match cmd {
-                FrameLayoutCommand::MoveLocationBy(delta) => CallFrameInstruction::AdvanceLoc {
-                    delta: *delta as u32,
-                },
+                FrameLayoutCommand::MoveLocationBy(delta) => {
+                    offset += *delta as u32;
+                    continue; // no instructions
+                }
                 FrameLayoutCommand::CallFrameAddressAt { reg, offset } => {
                     let mapped = map_reg(isa, *reg);
-                    let offset = (*offset) as u64;
+                    let offset = (*offset) as i32;
                     if mapped != cfa_def_reg && offset != cfa_def_offset {
                         cfa_def_reg = mapped;
                         cfa_def_offset = offset;
-                        CallFrameInstruction::DefCfa {
-                            register: mapped,
-                            offset,
-                        }
+                        CallFrameInstruction::Cfa(mapped, offset)
                     } else if offset != cfa_def_offset {
                         cfa_def_offset = offset;
-                        CallFrameInstruction::DefCfaOffset { offset }
+                        CallFrameInstruction::CfaOffset(offset)
                     } else if mapped != cfa_def_reg {
                         cfa_def_reg = mapped;
-                        CallFrameInstruction::DefCfaRegister { register: mapped }
+                        CallFrameInstruction::CfaRegister(mapped)
                     } else {
                         continue; // no instructions
                     }
                 }
                 FrameLayoutCommand::RegAt { reg, cfa_offset } => {
-                    assert!(cfa_offset % -8 == 0);
-                    let factored_offset = (cfa_offset / -8) as u64;
-                    let mapped = map_reg(isa, *reg);
-                    CallFrameInstruction::Offset {
-                        register: mapped,
-                        factored_offset,
-                    }
+                    CallFrameInstruction::Offset(map_reg(isa, *reg), *cfa_offset as i32)
                 }
             };
-            fde.add_instruction(instr);
+            fde.add_instruction(offset, instr);
         }
 
-        cie.add_fde_entry(fde);
+        table.add_fde(fde);
     }
 
-    let table = DebugFrameTable { entries: vec![cie] };
     Ok(table)
 }
