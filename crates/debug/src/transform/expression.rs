@@ -173,7 +173,7 @@ impl<'a> CompiledExpression<'a> {
 
     pub fn build(&self) -> Option<write::Expression> {
         if let [CompiledExpressionPart::Code(code)] = self.parts.as_slice() {
-            return Some(write::Expression(code.to_vec()));
+            return Some(write::Expression::raw(code.to_vec()));
         }
         // locals found, not supported
         None
@@ -194,7 +194,7 @@ impl<'a> CompiledExpression<'a> {
             let mut result_scope = Vec::new();
             for s in scope {
                 for (addr, len) in addr_tr.translate_ranges(s.0, s.1) {
-                    result_scope.push((addr, len, write::Expression(code.to_vec())));
+                    result_scope.push((addr, len, write::Expression::raw(code.to_vec())));
                 }
             }
             return Ok(result_scope);
@@ -281,7 +281,7 @@ impl<'a> CompiledExpression<'a> {
                     addend: start as i64,
                 },
                 (end - start) as u64,
-                write::Expression(code_buf),
+                write::Expression::raw(code_buf),
             ));
         }
 
@@ -348,7 +348,7 @@ where
             parts.push(CompiledExpressionPart::Local(label));
         } else {
             let pos = pc.offset_from(&expr.0).into_u64() as usize;
-            let op = Operation::parse(&mut pc, &expr.0, encoding)?;
+            let op = Operation::parse(&mut pc, encoding)?;
             match op {
                 Operation::FrameOffset { offset } => {
                     // Expand DW_OP_fpreg into frame location and DW_OP_plus_uconst.
@@ -370,7 +370,7 @@ where
                     code_chunk.extend(writer.into_vec());
                     continue;
                 }
-                Operation::Literal { .. } | Operation::PlusConstant { .. } => (),
+                Operation::UnsignedConstant { .. } | Operation::SignedConstant { .. } | Operation::PlusConstant { .. } => (),
                 Operation::StackValue => {
                     need_deref = false;
                 }

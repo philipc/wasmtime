@@ -899,8 +899,6 @@ dependencies = [
 [[package]]
 name = "gimli"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81dd6190aad0f05ddbbf3245c54ed14ca4aa6dd32f22312b70d8f168c3e3e633"
 dependencies = [
  "arrayvec",
  "byteorder",

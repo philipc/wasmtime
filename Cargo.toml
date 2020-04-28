@@ -85,3 +85,6 @@ maintenance = { status = "actively-developed" }
 [[test]]
 name = "host_segfault"
 harness = false
+
+[patch.crates-io]
+gimli = { path = "../gimli" }
