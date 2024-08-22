@@ -254,6 +254,7 @@ pub(crate) fn clone_unit<'a>(
     out_module_synthetic_unit: &ModuleSyntheticUnit,
     out_units: &mut write::UnitTable,
     out_strings: &mut write::StringTable,
+    out_line_strings: &mut write::LineStringTable,
     translated: &mut HashSet<usize>,
     isa: &dyn TargetIsa,
 ) -> Result<Option<(write::UnitId, UnitRefsMap, PendingDebugInfoRefs)>, Error> {
@@ -270,8 +271,14 @@ pub(crate) fn clone_unit<'a>(
     let (mut out_unit, out_unit_id, file_map, file_index_base) =
         if let Some((depth_delta, entry)) = entries.next_dfs()? {
             assert_eq!(depth_delta, 0);
-            let (out_line_program, debug_line_offset, file_map, file_index_base) =
-                clone_line_program(skeleton_unit, unit.name, addr_tr, out_encoding, out_strings)?;
+            let (out_line_program, debug_line_offset, file_map, file_index_base) = clone_line_program(
+                skeleton_unit,
+                unit.name,
+                addr_tr,
+                out_encoding,
+                out_strings,
+                out_line_strings,
+            )?;
 
             if entry.tag() == gimli::DW_TAG_compile_unit {
                 log_begin_input_die(unit, entry, 0);
