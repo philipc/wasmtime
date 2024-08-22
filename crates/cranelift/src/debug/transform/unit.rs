@@ -257,6 +257,7 @@ pub(crate) fn clone_unit(
     out_module_synthetic_unit: &ModuleSyntheticUnit,
     out_units: &mut write::UnitTable,
     out_strings: &mut write::StringTable,
+    out_line_strings: &mut write::LineStringTable,
     translated: &mut HashSet<usize>,
     isa: &dyn TargetIsa,
 ) -> Result<Option<(write::UnitId, UnitRefsMap, PendingDebugInfoRefs)>, Error> {
@@ -284,6 +285,7 @@ pub(crate) fn clone_unit(
             addr_tr,
             out_encoding,
             out_strings,
+            out_line_strings,
         )?;
 
         if entry.tag() == gimli::DW_TAG_compile_unit {

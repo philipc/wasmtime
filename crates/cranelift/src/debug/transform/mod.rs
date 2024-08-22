@@ -171,7 +171,7 @@ pub fn transform_dwarf(
     let mut out_strings = write::StringTable::default();
     let mut out_units = write::UnitTable::default();
 
-    let out_line_strings = write::LineStringTable::default();
+    let mut out_line_strings = write::LineStringTable::default();
     let mut pending_di_refs = Vec::new();
     let mut di_ref_map = DebugInfoRefsMap::new();
     let mut vmctx_ptr_die_refs = PrimaryMap::new();
@@ -231,6 +231,7 @@ pub fn transform_dwarf(
                 &out_module_synthetic_unit,
                 &mut out_units,
                 &mut out_strings,
+                &mut out_line_strings,
                 &mut translated,
                 isa,
             )? {
