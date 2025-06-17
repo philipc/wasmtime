@@ -9,7 +9,7 @@ use gimli::{AttributeValue, DebuggingInformationEntry, UnitRef, write};
 pub(crate) fn append_vmctx_info(
     comp_unit: &mut write::Unit,
     parent_id: write::UnitEntryId,
-    vmctx_ptr_die_ref: write::Reference,
+    vmctx_ptr_die_ref: write::DebugInfoRef,
     addr_tr: &AddressTransform,
     frame_info: Option<&FunctionFrameInfo>,
     scope_ranges: &[(u64, u64)],

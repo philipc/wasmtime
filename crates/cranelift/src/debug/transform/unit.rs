@@ -113,7 +113,7 @@ fn replace_pointer_type<'a>(
     parent_id: write::UnitEntryId,
     kind: WebAssemblyPtrKind,
     comp_unit: &mut write::Unit,
-    wasm_ptr_die_ref: write::Reference,
+    wasm_ptr_die_ref: write::DebugInfoRef,
     pointer_type_entry: &DebuggingInformationEntry<Reader<'a>>,
     unit: UnitRef<Reader<'a>>,
     out_strings: &mut write::StringTable,

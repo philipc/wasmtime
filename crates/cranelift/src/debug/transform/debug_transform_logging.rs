@@ -226,8 +226,8 @@ impl<'a> fmt::Debug for OutDieDetailedSummary<'a> {
                 write::AttributeValue::Ordering(value) => write!(f, "{value}"),
                 write::AttributeValue::UnitRef(unit_ref) => write!(f, "{unit_ref:?}>"),
                 write::AttributeValue::DebugInfoRef(reference) => match reference {
-                    write::Reference::Symbol(index) => write!(f, "symbol #{index}>"),
-                    write::Reference::Entry(unit_id, die_id) => {
+                    write::DebugInfoRef::Symbol(index) => write!(f, "symbol #{index}>"),
+                    write::DebugInfoRef::Entry(unit_id, die_id) => {
                         write!(f, "{die_id:?} in {unit_id:?}>")
                     }
                 },
